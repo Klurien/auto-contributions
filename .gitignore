@@ -1,0 +1,6 @@
+.env
+.lock
+*.pyc
+__pycache__/
+green.log
+.venv/
