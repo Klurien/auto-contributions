@@ -330,19 +330,40 @@ class GreenBot:
 # ---------------------------------------------------------------------------
 
 
-def install_cron(repo_dir: Path, python: str, script: Path):
-    entry = f"0 9 * * * cd {repo_dir} && {python} {script} daily >> {repo_dir}/green.log 2>&1"
-    # read existing crontab
-    rc, out, _ = run(["crontab", "-l"], check=False)
-    existing = out if rc == 0 else ""
-    if entry in existing:
-        print("[schedule] Cron entry already present.")
-        return
-    new = existing.rstrip() + "\n" + entry + "\n" if existing.strip() else entry + "\n"
-    # write via stdin
-    subprocess.run(["crontab", "-"], input=new, text=True, check=True)
-    print("[schedule] Installed daily cron job (09:00).")
-    print(entry)
+def install_schedule(repo_dir: Path, python: str, script: Path):
+    unit_dir = Path.home() / ".config" / "systemd" / "user"
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    service = unit_dir / "green-contributions.service"
+    timer = unit_dir / "green-contributions.timer"
+    service.write_text(
+        "[Unit]\n"
+        "Description=Daily GitHub contribution\n"
+        "\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        f"WorkingDirectory={repo_dir}\n"
+        f"ExecStart={python} {script} daily\n"
+    )
+    timer.write_text(
+        "[Unit]\n"
+        "Description=Run daily GitHub contribution\n"
+        "\n"
+        "[Timer]\n"
+        "OnCalendar=*-*-* 09:00:00\n"
+        "Persistent=true\n"
+        "Unit=green-contributions.service\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=timers.target\n"
+    )
+    run(["systemctl", "--user", "daemon-reload"], check=False)
+    run(
+        ["systemctl", "--user", "enable", "--now", "green-contributions.timer"],
+        check=False,
+    )
+    print("[schedule] Installed systemd user timer (daily 09:00).")
+    print(f"  service: {service}")
+    print(f"  timer:   {timer}")
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +451,7 @@ def main():
     elif args.cmd == "status":
         bot.status()
     elif args.cmd == "schedule":
-        install_cron(bot.repo_dir, args.python, Path(__file__).resolve())
+        install_schedule(bot.repo_dir, args.python, Path(__file__).resolve())
 
 
 if __name__ == "__main__":
